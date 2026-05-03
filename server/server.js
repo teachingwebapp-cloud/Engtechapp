@@ -1,4 +1,7 @@
-require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
+// Load environment variables from .env file in development only
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
+}
 
 // Ensure NODE_ENV is set
 process.env.NODE_ENV = process.env.NODE_ENV || 'development';
@@ -20,6 +23,9 @@ const permissionRoutes = require('./routes/permissions');
 const { apiLimiter } = require('./middleware/rateLimiter');
 
 const app = express();
+
+// Trust proxy for Railway deployment
+app.set('trust proxy', 1);
 
 const seedOnBoot = async () => {
   try {
@@ -100,7 +106,7 @@ app.use(cors({
       configuredUrl, 
       'http://localhost:5173', 
       'http://localhost:5174',
-      'https://web-production-f0f35.up.railway.app' // Hardcode allowing the current Railway app domain
+      'https://web-production-cced82.up.railway.app' // Current Railway app domain
     ].filter(Boolean);
 
     // If the origin matches any of the allowed origins, or if the origin is the same as the host
