@@ -1,0 +1,7 @@
+/* We rely mostly on index.css for global resets and UI classes */
+/* App specific global container spacing if needed */
+.app-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}

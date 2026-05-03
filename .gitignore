@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Environment - NEVER commit these!
+.env
+.env.*
+server/.env
+server/.env.*
+client/.env
+client/.env.*
+*.env
+
+# Sensitive credentials - NEVER commit these!
+YOUR_CREDENTIALS.txt
+RAILWAY_VARIABLES.txt
+*credentials*.txt
+*secrets*.txt
+*password*.txt
+
+# Build outputs
+client/dist/
+server/build/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+.cache/
+.temp/
