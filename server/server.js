@@ -1,10 +1,15 @@
 // Load environment variables from .env file in development only
+// In production (Railway), environment variables are injected directly
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 }
 
-// Ensure NODE_ENV is set
-process.env.NODE_ENV = process.env.NODE_ENV || 'development';
+// Debug: Log environment variable status (remove after fixing)
+console.log('🔍 Environment Check:');
+console.log('   NODE_ENV:', process.env.NODE_ENV);
+console.log('   MONGODB_URI:', process.env.MONGODB_URI ? '✅ Set' : '❌ Not set');
+console.log('   PORT:', process.env.PORT);
+console.log('   JWT_SECRET:', process.env.JWT_SECRET ? '✅ Set' : '❌ Not set');
 
 const express = require('express');
 const cors = require('cors');
