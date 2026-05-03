@@ -8,8 +8,11 @@ if (process.env.NODE_ENV !== 'production') {
 console.log('🔍 Environment Check:');
 console.log('   NODE_ENV:', process.env.NODE_ENV);
 console.log('   MONGODB_URI:', process.env.MONGODB_URI ? '✅ Set' : '❌ Not set');
+console.log('   MONGO_URI:', process.env.MONGO_URI ? '✅ Set' : '❌ Not set');
+console.log('   DATABASE_URL:', process.env.DATABASE_URL ? '✅ Set' : '❌ Not set');
 console.log('   PORT:', process.env.PORT);
 console.log('   JWT_SECRET:', process.env.JWT_SECRET ? '✅ Set' : '❌ Not set');
+console.log('   All env keys:', Object.keys(process.env).filter(k => k.includes('MONGO') || k.includes('DATABASE')));
 
 const express = require('express');
 const cors = require('cors');

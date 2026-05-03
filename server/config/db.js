@@ -2,13 +2,17 @@ const mongoose = require('mongoose');
 
 const connectDB = async () => {
   try {
-    const uri = process.env.MONGODB_URI;
+    // Try multiple environment variable names (Railway sometimes has issues)
+    const uri = process.env.MONGODB_URI || process.env.MONGO_URI || process.env.DATABASE_URL;
 
     if (!uri) {
       console.warn('⚠️ MONGODB_URI not set. Database will be unavailable.');
       console.warn('   To use the app, install MongoDB and set MONGODB_URI in .env');
+      console.warn('   Checked: MONGODB_URI, MONGO_URI, DATABASE_URL');
       return;
     }
+    
+    console.log('✅ Using MongoDB URI from:', process.env.MONGODB_URI ? 'MONGODB_URI' : process.env.MONGO_URI ? 'MONGO_URI' : 'DATABASE_URL');
 
     const conn = await mongoose.connect(uri, {
       serverSelectionTimeoutMS: 5000,
