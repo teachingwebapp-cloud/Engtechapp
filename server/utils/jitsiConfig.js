@@ -22,7 +22,7 @@ const getJitsiConfig = (role, userName, roomName) => {
       displayName: userName
     },
     configOverwrite: {
-      prejoinPageEnabled: false, 
+      prejoinPageEnabled: false,
       startWithAudioMuted: true,
       startWithVideoMuted: true,
       enableNoAudioDetection: true,
@@ -31,7 +31,7 @@ const getJitsiConfig = (role, userName, roomName) => {
       enableClosePage: false,
       hideConferenceSubject: false,
       hideConferenceTimer: false,
-      p2p: { enabled: true } // Better for smaller 1-on-1 sessions
+      p2p: { enabled: true }
     },
     interfaceConfigOverwrite: {
       SHOW_JITSI_WATERMARK: false,
@@ -42,11 +42,14 @@ const getJitsiConfig = (role, userName, roomName) => {
     }
   };
 
-  // Fix: was `role === 'admin' || role === 'admin'` (duplicate) — now just `role === 'admin'`
   if (role === 'admin') {
-    // Teacher gets full controls
+    // Admin/Teacher: set as moderator so Jitsi skips the "log-in to become moderator" prompt
+    baseConfig.userInfo.moderator = true;
     baseConfig.configOverwrite.startWithAudioMuted = false;
     baseConfig.configOverwrite.startWithVideoMuted = false;
+    // startAsModerator tells Jitsi to bypass the lobby/moderator login screen
+    baseConfig.configOverwrite.startAsModerator = true;
+    baseConfig.configOverwrite.lobby = { autoKnock: false, enableChat: false };
     baseConfig.interfaceConfigOverwrite.TOOLBAR_BUTTONS = [
       'microphone', 'camera', 'desktop', 'fullscreen',
       'raisehand', 'participants-pane', 'tileview',
@@ -54,24 +57,23 @@ const getJitsiConfig = (role, userName, roomName) => {
       'mute-everyone', 'security'
     ];
   } else {
-    // Student gets heavily restricted controls - absolutely no access
+    // Student: muted by default, but give basic controls (mic, camera, raisehand, hangup)
     baseConfig.configOverwrite.startWithAudioMuted = true;
     baseConfig.configOverwrite.startWithVideoMuted = true;
-
-    // Strict permissions locking down any ability to alter the call
     baseConfig.configOverwrite.disableModeratorIndicator = true;
     baseConfig.configOverwrite.disableRemoteMute = true;
     baseConfig.configOverwrite.remoteVideoMenu = {
-        disableKick: true,
-        disableGrantModerator: true
+      disableKick: true,
+      disableGrantModerator: true
     };
     baseConfig.configOverwrite.participantsPane = {
-        hideMoreActionsButton: true,
-        hideMuteAllButton: true
+      hideMoreActionsButton: true,
+      hideMuteAllButton: true
     };
-
-    // Strip ALL buttons from the interface toolbar so they cannot interact with settings
-    baseConfig.interfaceConfigOverwrite.TOOLBAR_BUTTONS = [];
+    // Give students basic controls so they can use mic/camera/raisehand
+    baseConfig.interfaceConfigOverwrite.TOOLBAR_BUTTONS = [
+      'microphone', 'camera', 'raisehand', 'hangup', 'tileview', 'fullscreen'
+    ];
     baseConfig.interfaceConfigOverwrite.DISABLE_JOIN_LEAVE_NOTIFICATIONS = true;
   }
 
