@@ -57,7 +57,7 @@ const getJitsiConfig = (role, userName, roomName) => {
       'mute-everyone', 'security'
     ];
   } else {
-    // Student: muted by default, but give basic controls (mic, camera, raisehand, hangup)
+    // Student: muted by default, but give basic controls
     baseConfig.configOverwrite.startWithAudioMuted = true;
     baseConfig.configOverwrite.startWithVideoMuted = true;
     baseConfig.configOverwrite.disableModeratorIndicator = true;
@@ -70,9 +70,9 @@ const getJitsiConfig = (role, userName, roomName) => {
       hideMoreActionsButton: true,
       hideMuteAllButton: true
     };
-    // Give students basic controls so they can use mic/camera/raisehand
+    // Give students basic controls so they can trigger permissions
     baseConfig.interfaceConfigOverwrite.TOOLBAR_BUTTONS = [
-      'microphone', 'camera', 'raisehand', 'hangup', 'tileview', 'fullscreen'
+      'microphone', 'camera', 'desktop', 'raisehand', 'hangup', 'tileview', 'fullscreen'
     ];
     baseConfig.interfaceConfigOverwrite.DISABLE_JOIN_LEAVE_NOTIFICATIONS = true;
   }
