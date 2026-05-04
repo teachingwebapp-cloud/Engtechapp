@@ -85,9 +85,11 @@ const login = async (req, res) => {
     }
     await user.save();
 
-    // Log login activity
-    const ip = req.ip || req.connection.remoteAddress;
-    await logActivity(user._id, 'login', null, 'User logged in', ip);
+    // Log login activity (admin only — students don't need activity tracking)
+    if (user.role !== 'student') {
+      const ip = req.ip || req.connection.remoteAddress;
+      await logActivity(user._id, 'login', null, 'User logged in', ip);
+    }
 
     res.json({
       accessToken,
@@ -162,8 +164,10 @@ const logout = async (req, res) => {
       );
     }
 
-    // Log logout activity
-    await logActivity(req.user._id, 'logout', null, 'User logged out');
+    // Log logout activity (admin only — students don't need activity tracking)
+    if (req.user && req.user.role !== 'student') {
+      await logActivity(req.user._id, 'logout', null, 'User logged out');
+    }
 
     res.json({ message: 'Logout successful.' });
   } catch (error) {
