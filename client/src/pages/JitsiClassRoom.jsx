@@ -5,9 +5,16 @@ import { useAuth } from '../context/AuthContext';
 import Button from '../components/ui/Button';
 import PermissionRequestPanel from '../components/PermissionRequestPanel';
 import TeacherPermissionPanel from '../components/TeacherPermissionPanel';
+import usePermissions from '../hooks/usePermissions';
 
 import ClassroomChat from '../components/ClassroomChat';
 import { MessageCircle } from 'lucide-react';
+import { io } from 'socket.io-client';
+import { toast } from 'react-hot-toast';
+
+const SOCKET_URL = import.meta.env.PROD 
+  ? window.location.origin 
+  : (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : 'http://localhost:5000');
 
 const JitsiClassRoom = () => {
   const { id } = useParams();
@@ -23,6 +30,44 @@ const JitsiClassRoom = () => {
   const jitsiContainerContext = useRef(null);
   const jitsiApiRef = useRef(null);
   const joinTimeRef = useRef(Date.now());
+
+  const { permissionStatus, requestPermission, checkStatus } = usePermissions(id);
+  const permissionStatusRef = useRef(permissionStatus);
+  const [updateTrigger, setUpdateTrigger] = useState(0);
+
+  useEffect(() => {
+    permissionStatusRef.current = permissionStatus;
+  }, [permissionStatus]);
+
+  // Socket for real-time permission updates
+  useEffect(() => {
+    const socket = io(SOCKET_URL);
+
+    socket.emit('join_class', {
+      classId: id,
+      role: user.role,
+      studentId: user.studentId,
+      userName: user.name
+    });
+
+    if (user?.role === 'admin') {
+      socket.on('new_permission_request', (data) => {
+         toast(`${data.studentName} is requesting ${data.requestType} access.`, { icon: '🔔' });
+         setUpdateTrigger(prev => prev + 1);
+      });
+    } else if (user?.role === 'student') {
+      socket.on('permission_approved', (data) => {
+         toast.success(`Your ${data.requestType} permission was approved! You can now turn it on.`);
+         checkStatus(data.requestType);
+      });
+      socket.on('permission_denied', (data) => {
+         toast.error(`Your ${data.requestType} request was denied: ${data.reason}`);
+         checkStatus(data.requestType);
+      });
+    }
+
+    return () => socket.close();
+  }, [id, user, checkStatus]);
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -77,6 +122,37 @@ const JitsiClassRoom = () => {
           // Set display name again just in case it didn't apply
           if (jitsiConfig.userInfo?.displayName) {
             apiInstance.executeCommand('displayName', jitsiConfig.userInfo.displayName);
+          }
+        });
+
+        // Intercept student actions based on permissions
+        apiInstance.addListener('audioMuteStatusChanged', ({ muted }) => {
+          if (user?.role === 'student' && !muted) {
+            if (!permissionStatusRef.current.microphone?.allowed) {
+               apiInstance.executeCommand('toggleAudio'); // Mute it back
+               toast.error('Microphone locked. Requesting permission from teacher...');
+               requestPermission('microphone');
+            }
+          }
+        });
+
+        apiInstance.addListener('videoMuteStatusChanged', ({ muted }) => {
+          if (user?.role === 'student' && !muted) {
+            if (!permissionStatusRef.current.camera?.allowed) {
+               apiInstance.executeCommand('toggleVideo'); // Turn off camera back
+               toast.error('Camera locked. Requesting permission from teacher...');
+               requestPermission('camera');
+            }
+          }
+        });
+
+        apiInstance.addListener('screenSharingStatusChanged', ({ on }) => {
+          if (user?.role === 'student' && on) {
+            if (!permissionStatusRef.current.screen?.allowed) {
+               apiInstance.executeCommand('toggleShareScreen'); // Turn off screen share back
+               toast.error('Screen share locked. Requesting permission from teacher...');
+               requestPermission('screen');
+            }
           }
         });
 
@@ -205,7 +281,7 @@ const JitsiClassRoom = () => {
 
       {/* Permission Panels */}
       {user?.role === 'student' && <PermissionRequestPanel classId={id} isVisible={true} />}
-      {user?.role === 'admin' && <TeacherPermissionPanel classId={id} isVisible={true} />}
+      {user?.role === 'admin' && <TeacherPermissionPanel classId={id} isVisible={true} updateTrigger={updateTrigger} />}
     </div>
   );
 };

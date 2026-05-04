@@ -2,6 +2,7 @@ const PermissionRequest = require('../models/PermissionRequest');
 const Class = require('../models/Class');
 const Enrollment = require('../models/Enrollment');
 const logActivity = require('../middleware/activityLogger');
+const { getIO } = require('../socket');
 const { 
   isPermissionActive, 
   getActiveSpeakersCount, 
@@ -111,6 +112,18 @@ const requestPermission = async (req, res) => {
 
       // Invalidate teacher pending cache
       await invalidatePermissionCaches(classId);
+
+      // Real-time notification to teacher
+      const io = getIO();
+      if (io) {
+        io.to(`${classId}_teachers`).emit('new_permission_request', {
+          requestId: request._id.toString(),
+          requestType,
+          studentName: req.user.name,
+          studentId: req.user.studentId,
+          timestamp: new Date().toISOString()
+        });
+      }
 
       res.status(201).json({
         message: `${requestType.charAt(0).toUpperCase() + requestType.slice(1)} permission requested.`,
@@ -274,6 +287,15 @@ const approveRequest = async (req, res) => {
     // Invalidate caches
     await invalidatePermissionCaches(request.classId._id, request.studentId._id, request.requestType);
 
+    // Real-time notification to student
+    const io = getIO();
+    if (io) {
+      io.to(`${request.classId._id}_student_${request.studentId.studentId}`).emit('permission_approved', {
+        requestType: request.requestType,
+        visibility: request.visibility
+      });
+    }
+
     res.json({
       message: `${request.requestType} permission approved for ${request.studentId.name}.`,
       request,
@@ -325,6 +347,15 @@ const denyRequest = async (req, res) => {
 
     // Invalidate caches
     await invalidatePermissionCaches(request.classId._id);
+
+    // Real-time notification to student
+    const io = getIO();
+    if (io) {
+      io.to(`${request.classId._id}_student_${request.studentId.studentId}`).emit('permission_denied', {
+        requestType: request.requestType,
+        reason: request.denialReason
+      });
+    }
 
     res.json({
       message: `${request.requestType} permission denied for ${request.studentId.name}.`,

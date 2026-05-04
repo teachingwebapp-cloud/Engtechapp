@@ -7,7 +7,7 @@ import Card from './ui/Card';
 import Modal from './ui/Modal';
 import { toast } from 'react-hot-toast';
 
-const TeacherPermissionPanel = ({ classId, isVisible = true, onRequestUpdate }) => {
+const TeacherPermissionPanel = ({ classId, isVisible = true, onRequestUpdate, updateTrigger }) => {
   const [showPanel, setShowPanel] = useState(isVisible);
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -20,11 +20,11 @@ const TeacherPermissionPanel = ({ classId, isVisible = true, onRequestUpdate }) 
   useEffect(() => {
     if (showPanel && classId) {
       fetchRequests();
-      const interval = setInterval(fetchRequests, 5000); // Poll every 5 seconds
+      const interval = setInterval(fetchRequests, 5000); // Keep polling as a backup
       return () => clearInterval(interval);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [classId, showPanel]);
+  }, [classId, showPanel, updateTrigger]);
 
   const fetchRequests = async () => {
     try {
