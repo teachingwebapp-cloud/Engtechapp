@@ -301,4 +301,36 @@ const leaveClass = async (req, res) => {
   }
 };
 
-module.exports = { createClass, getClasses, getClass, updateClass, joinClass, leaveClass };
+// DELETE /api/classes/:id — Delete class (Admin only)
+const deleteClass = async (req, res) => {
+  try {
+    const classItem = await Class.findById(req.params.id);
+
+    if (!classItem) {
+      return res.status(404).json({ message: 'Class not found.' });
+    }
+
+    // Super Admin can delete any class; regular admins only their own
+    if (
+      req.user.role === 'admin' &&
+      req.user.studentId !== 'admin' &&
+      classItem.teacherId.toString() !== req.user._id.toString()
+    ) {
+      return res.status(403).json({ message: 'Access denied. You can only delete your own classes.' });
+    }
+
+    // Remove all enrollments for this class first
+    await Enrollment.deleteMany({ classId: classItem._id });
+
+    await Class.findByIdAndDelete(req.params.id);
+
+    await logActivity(req.user._id, 'delete_class', classItem._id, `Deleted class: ${classItem.title}`);
+
+    res.json({ message: 'Class deleted successfully.' });
+  } catch (error) {
+    console.error('Delete class error:', error);
+    res.status(500).json({ message: 'Server error deleting class.' });
+  }
+};
+
+module.exports = { createClass, getClasses, getClass, updateClass, joinClass, leaveClass, deleteClass };

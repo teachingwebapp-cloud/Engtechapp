@@ -26,6 +26,9 @@ const ManageClasses = () => {
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [enrollLoading, setEnrollLoading] = useState(false);
 
+  const [deleteConfirmClass, setDeleteConfirmClass] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   const fetchClasses = async () => {
     try {
       const res = await api.get('/classes');
@@ -103,6 +106,21 @@ const ManageClasses = () => {
     } catch (_err) { toast.error(_err?.response?.data?.message || 'Failed to update class state'); }
   };
 
+  const handleDeleteClass = async () => {
+    if (!deleteConfirmClass) return;
+    setDeleteLoading(true);
+    try {
+      await api.delete(`/classes/${deleteConfirmClass._id}`);
+      toast.success(`"${deleteConfirmClass.title}" deleted successfully`);
+      setClasses(prev => prev.filter(c => c._id !== deleteConfirmClass._id));
+      setDeleteConfirmClass(null);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to delete class');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   if (loading) return <div style={{ padding: '2rem' }}>Loading classes...</div>;
 
   return (
@@ -155,6 +173,8 @@ const ManageClasses = () => {
                     <Button size="sm" style={{ backgroundColor: 'rgb(34, 197, 94)', color: 'white', fontWeight: 600 }}
                       onClick={() => handleUpdateStatus(cls._id, 'live')}>▶ Live</Button>
                     <Button size="sm" variant="secondary" onClick={() => openEnrollModal(cls)}>📋 Students</Button>
+                    <Button size="sm" style={{ backgroundColor: 'rgb(239, 68, 68)', color: 'white', fontWeight: 600 }}
+                      onClick={() => setDeleteConfirmClass(cls)}>🗑 Delete</Button>
                   </>
                 )}
                 </div>
@@ -203,6 +223,37 @@ const ManageClasses = () => {
           </div>
         )}
       </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={!!deleteConfirmClass}
+        onClose={() => !deleteLoading && setDeleteConfirmClass(null)}
+        title="Delete Class"
+        size="sm"
+      >
+        <div style={{ textAlign: 'center', padding: '0.5rem 0 1rem' }}>
+          <div style={{ fontSize: '3rem', marginBottom: '0.75rem' }}>🗑️</div>
+          <p style={{ fontSize: '1rem', fontWeight: 600, margin: '0 0 0.5rem' }}>
+            Delete &ldquo;{deleteConfirmClass?.title}&rdquo;?
+          </p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', margin: '0 0 1.5rem' }}>
+            This will permanently delete the class and remove all student enrollments. This action cannot be undone.
+          </p>
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+            <Button variant="secondary" onClick={() => setDeleteConfirmClass(null)} disabled={deleteLoading}>
+              Cancel
+            </Button>
+            <Button
+              style={{ backgroundColor: 'rgb(239, 68, 68)', color: 'white', fontWeight: 600, minWidth: '100px' }}
+              onClick={handleDeleteClass}
+              disabled={deleteLoading}
+            >
+              {deleteLoading ? 'Deleting…' : '🗑 Delete'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
     </div>
   );
