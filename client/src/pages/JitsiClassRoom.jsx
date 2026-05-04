@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -6,14 +6,13 @@ import Button from '../components/ui/Button';
 import PermissionRequestPanel from '../components/PermissionRequestPanel';
 import TeacherPermissionPanel from '../components/TeacherPermissionPanel';
 import usePermissions from '../hooks/usePermissions';
-
 import ClassroomChat from '../components/ClassroomChat';
 import { MessageCircle } from 'lucide-react';
 import { io } from 'socket.io-client';
 import { toast } from 'react-hot-toast';
 
-const SOCKET_URL = import.meta.env.PROD 
-  ? window.location.origin 
+const SOCKET_URL = import.meta.env.PROD
+  ? window.location.origin
   : (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : 'http://localhost:5000');
 
 const JitsiClassRoom = () => {
@@ -27,22 +26,28 @@ const JitsiClassRoom = () => {
   const [classTitle, setClassTitle] = useState('');
   const [sessionId, setSessionId] = useState(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [updateTrigger, setUpdateTrigger] = useState(0);
+  const [globalSocket, setGlobalSocket] = useState(null);
   const jitsiContainerContext = useRef(null);
   const jitsiApiRef = useRef(null);
   const joinTimeRef = useRef(Date.now());
 
+  // Permission handling — for students
   const { permissionStatus, requestPermission, checkStatus } = usePermissions(id);
   const permissionStatusRef = useRef(permissionStatus);
-  const [updateTrigger, setUpdateTrigger] = useState(0);
-  const [globalSocket, setGlobalSocket] = useState(null);
 
   useEffect(() => {
     permissionStatusRef.current = permissionStatus;
   }, [permissionStatus]);
 
-  // Socket for real-time permission updates
+  const checkStatusRef = useRef(checkStatus);
+  useEffect(() => { checkStatusRef.current = checkStatus; }, [checkStatus]);
+
+  // Socket for real-time permission updates — using a ref to avoid stale closures
   useEffect(() => {
-    const socket = io(SOCKET_URL);
+    if (!user) return;
+
+    const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
     setGlobalSocket(socket);
 
     socket.emit('join_class', {
@@ -52,48 +57,45 @@ const JitsiClassRoom = () => {
       userName: user.name
     });
 
-    if (user?.role === 'admin') {
+    if (user.role === 'admin') {
       socket.on('new_permission_request', (data) => {
-         toast(`${data.studentName} is requesting ${data.requestType} access.`, { icon: '🔔' });
-         setUpdateTrigger(prev => prev + 1);
+        toast(`${data.studentName} is requesting ${data.requestType} access.`, { icon: '🔔', duration: 5000 });
+        setUpdateTrigger(prev => prev + 1);
       });
-    } else if (user?.role === 'student') {
+    } else if (user.role === 'student') {
       socket.on('permission_approved', (data) => {
-         toast.success(`Your ${data.requestType} permission was approved! You can now turn it on.`);
-         checkStatus(data.requestType);
+        toast.success(`✅ Your ${data.requestType} was approved! You can turn it on now.`, { duration: 5000 });
+        checkStatusRef.current(data.requestType);
       });
       socket.on('permission_denied', (data) => {
-         toast.error(`Your ${data.requestType} request was denied: ${data.reason}`);
-         checkStatus(data.requestType);
+        toast.error(`❌ ${data.requestType} request denied: ${data.reason}`, { duration: 6000 });
+        checkStatusRef.current(data.requestType);
       });
       socket.on('permission_revoked', (data) => {
-         toast.error(`Your ${data.requestType} permission was revoked by the teacher.`);
-         checkStatus(data.requestType);
-         
-         // Immediately turn off the media if it's currently on
-         if (jitsiApiRef.current) {
+        toast.error(`🔇 Your ${data.requestType} was muted by the teacher.`, { duration: 5000 });
+        checkStatusRef.current(data.requestType);
+        // Auto-mute the student's media via Jitsi API
+        try {
+          if (jitsiApiRef.current) {
             if (data.requestType === 'microphone') {
-               jitsiApiRef.current.isAudioMuted().then(muted => {
-                  if (!muted) jitsiApiRef.current.executeCommand('toggleAudio');
-               });
+              jitsiApiRef.current.isAudioMuted().then(muted => {
+                if (!muted) jitsiApiRef.current.executeCommand('toggleAudio');
+              }).catch(() => {});
             } else if (data.requestType === 'camera') {
-               jitsiApiRef.current.isVideoMuted().then(muted => {
-                  if (!muted) jitsiApiRef.current.executeCommand('toggleVideo');
-               });
-            } else if (data.requestType === 'screen') {
-               // We don't have isScreenSharing API, so we just toggle it off if we assume it's on
-               // But to be safe, since they lose permission, the next time they click it will lock anyway.
-               // Let's just execute command to be sure it toggles. Wait, if it's already off, it might turn on!
-               // Actually we can just leave screen share to be intercepted by the status changed listener,
-               // but it won't trigger until they toggle. For now, mic/cam are the most important.
+              jitsiApiRef.current.isVideoMuted().then(muted => {
+                if (!muted) jitsiApiRef.current.executeCommand('toggleVideo');
+              }).catch(() => {});
             }
-         }
+          }
+        } catch (e) { /* ignore */ }
       });
     }
 
-    return () => socket.close();
-  }, [id, user, checkStatus]);
+    return () => { socket.close(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, user?.role, user?.studentId, user?.name]);
 
+  // Fetch Jitsi config from server
   useEffect(() => {
     const fetchConfig = async () => {
       try {
@@ -103,18 +105,21 @@ const JitsiClassRoom = () => {
         setSessionId(res.data.sessionId);
       } catch (err) {
         setError(err.response?.data?.message || 'Failed to join class. Are you enrolled?');
-      } finally { setLoading(false); }
+      } finally {
+        setLoading(false);
+      }
     };
     fetchConfig();
   }, [id]);
 
-  const logClassExit = async () => {
+  const logClassExit = useCallback(async () => {
     try {
       const durationSeconds = Math.floor((Date.now() - joinTimeRef.current) / 1000);
       await api.post(`/classes/${id}/leave`, { sessionId, durationSeconds });
     } catch (err) { console.error('Failed to log class exit:', err); }
-  };
+  }, [id, sessionId]);
 
+  // Initialize Jitsi
   useEffect(() => {
     if (!jitsiConfig || !jitsiContainerContext.current) return;
 
@@ -124,10 +129,8 @@ const JitsiClassRoom = () => {
     const initJitsi = () => {
       delayId = setTimeout(() => {
         if (!jitsiContainerContext.current) return;
-        
-        // Ensure container is empty before creating new instance
         jitsiContainerContext.current.innerHTML = '';
-        
+
         const domain = 'meet.jit.si';
         const options = {
           ...jitsiConfig,
@@ -144,19 +147,18 @@ const JitsiClassRoom = () => {
         apiInstance.addListener('videoConferenceJoined', () => {
           clearTimeout(timeoutId);
           setJitsiLoading(false);
-          // Set display name again just in case it didn't apply
           if (jitsiConfig.userInfo?.displayName) {
             apiInstance.executeCommand('displayName', jitsiConfig.userInfo.displayName);
           }
         });
 
-        // Intercept student actions based on permissions
+        // Intercept student media buttons — lock if no permission granted
         apiInstance.addListener('audioMuteStatusChanged', ({ muted }) => {
           if (user?.role === 'student' && !muted) {
             if (!permissionStatusRef.current.microphone?.allowed) {
-               apiInstance.executeCommand('toggleAudio'); // Mute it back
-               toast.error('Microphone locked. Requesting permission from teacher...');
-               requestPermission('microphone');
+              apiInstance.executeCommand('toggleAudio');
+              toast.error('🎤 Microphone locked. Requesting permission from teacher...');
+              requestPermission('microphone');
             }
           }
         });
@@ -164,9 +166,9 @@ const JitsiClassRoom = () => {
         apiInstance.addListener('videoMuteStatusChanged', ({ muted }) => {
           if (user?.role === 'student' && !muted) {
             if (!permissionStatusRef.current.camera?.allowed) {
-               apiInstance.executeCommand('toggleVideo'); // Turn off camera back
-               toast.error('Camera locked. Requesting permission from teacher...');
-               requestPermission('camera');
+              apiInstance.executeCommand('toggleVideo');
+              toast.error('📹 Camera locked. Requesting permission from teacher...');
+              requestPermission('camera');
             }
           }
         });
@@ -174,9 +176,9 @@ const JitsiClassRoom = () => {
         apiInstance.addListener('screenSharingStatusChanged', ({ on }) => {
           if (user?.role === 'student' && on) {
             if (!permissionStatusRef.current.screen?.allowed) {
-               apiInstance.executeCommand('toggleShareScreen'); // Turn off screen share back
-               toast.error('Screen share locked. Requesting permission from teacher...');
-               requestPermission('screen');
+              try { apiInstance.executeCommand('toggleShareScreen'); } catch (e) {}
+              toast.error('🖥️ Screen share locked. Requesting permission from teacher...');
+              requestPermission('screen');
             }
           }
         });
@@ -187,7 +189,7 @@ const JitsiClassRoom = () => {
             else navigate('/student/dashboard');
           });
         });
-      }, 150); // Slight delay to allow DOM to settle
+      }, 150);
     };
 
     if (!window.JitsiMeetExternalAPI) {
@@ -204,20 +206,23 @@ const JitsiClassRoom = () => {
       initJitsi();
     }
 
-    // Strict cleanup function
     return () => {
       if (delayId) clearTimeout(delayId);
       if (apiInstance) {
         try {
-          // Force hangup before disposing to cleanly disconnect from Jitsi server
           apiInstance.executeCommand('hangup');
           apiInstance.dispose();
-        } catch (e) {
-          console.error("Error disposing Jitsi instance:", e);
-        }
+        } catch (e) { console.error('Error disposing Jitsi:', e); }
       }
     };
-  }, [jitsiConfig, navigate, user?.role]);
+  }, [jitsiConfig, navigate, user?.role, requestPermission, logClassExit]);
+
+  // --- Render guards ---
+  if (!user) return (
+    <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f0f1a', color: '#fff', fontSize: '1rem' }}>
+      Authenticating...
+    </div>
+  );
 
   if (loading) return (
     <div className="flex-center" style={{ height: '100vh', flexDirection: 'column', gap: '1rem', background: '#0f0f1a', color: '#fff' }}>
@@ -228,7 +233,7 @@ const JitsiClassRoom = () => {
 
   if (error) return (
     <div className="flex-center" style={{ height: '100vh', flexDirection: 'column', gap: '1rem', background: '#0f0f1a', color: '#fff', padding: '1rem', textAlign: 'center' }}>
-      <h2 style={{ color: 'var(--danger)' }}>Access Denied</h2>
+      <h2 style={{ color: 'var(--danger)' }}>⚠️ Access Denied</h2>
       <p style={{ color: '#aaa', maxWidth: '400px' }}>{error}</p>
       <Button onClick={() => navigate(-1)}>Go Back</Button>
     </div>
@@ -241,19 +246,19 @@ const JitsiClassRoom = () => {
         <div className="jitsi-toolbar-left">
           <Button size="sm" variant="danger" onClick={() => {
             logClassExit().then(() => {
-                if (user?.role === 'admin') navigate('/teacher/dashboard');
-                else navigate('/student/dashboard');
+              if (user?.role === 'admin') navigate('/teacher/dashboard');
+              else navigate('/student/dashboard');
             });
           }}>← Leave</Button>
           <span className="jitsi-toolbar-title">{classTitle}</span>
         </div>
         <div>
-          {user.role === 'student' && (
+          {user?.role === 'student' && (
             <span className="jitsi-role-label" style={{ color: '#94a3b8', background: 'rgba(255,255,255,0.05)' }}>
-              🔇 Muted by default · Raise Hand to speak
+              🔇 Muted by default · Use buttons to request access
             </span>
           )}
-          {user.role === 'admin' && (
+          {user?.role === 'admin' && (
             <span className="jitsi-role-label" style={{ color: '#6ee7b7', background: 'rgba(110,231,183,0.1)' }}>
               🎙️ You are the host
             </span>
@@ -274,26 +279,16 @@ const JitsiClassRoom = () => {
       </div>
 
       {/* Floating Chat Toggle */}
-      <button 
+      <button
         onClick={() => setIsChatOpen(!isChatOpen)}
         className="jitsi-chat-fab"
         style={{
-          position: 'absolute',
-          right: '20px',
-          bottom: '20px',
-          width: '50px',
-          height: '50px',
-          borderRadius: '25px',
-          backgroundColor: '#4f46e5',
-          color: 'white',
-          border: 'none',
+          position: 'absolute', right: '20px', bottom: '20px',
+          width: '50px', height: '50px', borderRadius: '25px',
+          backgroundColor: '#4f46e5', color: 'white', border: 'none',
           boxShadow: '0 4px 15px rgba(79, 70, 229, 0.4)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          zIndex: 100,
-          transition: 'transform 0.2s'
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', zIndex: 100, transition: 'transform 0.2s'
         }}
         onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'}
         onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
@@ -301,7 +296,7 @@ const JitsiClassRoom = () => {
         <MessageCircle size={24} />
       </button>
 
-      {/* Secure Chat Component */}
+      {/* Chat */}
       <ClassroomChat classId={id} user={user} isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} providedSocket={globalSocket} />
 
       {/* Permission Panels */}
