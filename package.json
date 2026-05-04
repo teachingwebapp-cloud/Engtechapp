@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Root configuration for Railway deployment",
   "scripts": {
-    "postinstall": "cd server && npm install && cd ../client && npm install && npm run build || exit 1",
     "start": "cd server && node server.js"
   }
 }
