@@ -15,41 +15,52 @@ const sanitizeText = (text) => {
   return div.innerHTML;
 };
 
-const ClassroomChat = ({ classId, user, isOpen, onClose }) => {
+const ClassroomChat = ({ classId, user, isOpen, onClose, providedSocket }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [socket, setSocket] = useState(null);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    // Initialize Socket connection
-    const newSocket = io(SOCKET_URL);
-    setSocket(newSocket);
+    // Use the provided socket if available, otherwise initialize a new one (fallback)
+    const activeSocket = providedSocket || io(SOCKET_URL);
+    setSocket(activeSocket);
 
-    // Join room
-    newSocket.emit('join_class', {
-      classId,
-      role: user.role,
-      studentId: user.studentId,
-      userName: user.name
-    });
+    // If we created a fallback socket, we need to join the room
+    if (!providedSocket) {
+      activeSocket.emit('join_class', {
+        classId,
+        role: user.role,
+        studentId: user.studentId,
+        userName: user.name
+      });
+    }
 
     // Listen for incoming messages
-    newSocket.on('receive_message', (message) => {
+    const handleReceiveMessage = (message) => {
       setMessages(prev => {
         // Prevent duplicate IDs (edge case from echoes)
         if (prev.some(m => m.id === message.id)) return prev;
         return [...prev, message];
       });
-    });
+    };
+    
+    activeSocket.on('receive_message', handleReceiveMessage);
 
     // Handle socket errors
-    newSocket.on('error', (error) => {
-      console.error('Socket error:', error);
-    });
+    const handleError = (error) => {
+      console.error('Socket error in chat:', error);
+    };
+    activeSocket.on('error', handleError);
 
-    return () => newSocket.close();
-  }, [classId, user]);
+    return () => {
+      activeSocket.off('receive_message', handleReceiveMessage);
+      activeSocket.off('error', handleError);
+      if (!providedSocket) {
+        activeSocket.close();
+      }
+    };
+  }, [classId, user, providedSocket]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

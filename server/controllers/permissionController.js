@@ -403,6 +403,14 @@ const revokePermission = async (req, res) => {
     // Invalidate caches
     await invalidatePermissionCaches(request.classId._id, request.studentId._id, request.requestType);
 
+    // Real-time notification to student
+    const io = getIO();
+    if (io) {
+      io.to(`${request.classId._id}_student_${request.studentId.studentId}`).emit('permission_revoked', {
+        requestType: request.requestType
+      });
+    }
+
     res.json({
       message: `${request.requestType} permission revoked for ${request.studentId.name}.`,
       request
