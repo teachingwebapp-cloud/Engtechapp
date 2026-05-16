@@ -20,7 +20,7 @@ const EnrollStudents = () => {
     try {
       const [classesRes, studentsRes] = await Promise.all([
         api.get('/classes'),
-        api.get('/users?role=student&status=active&limit=1000')
+        api.get('/users?role=student&status=active&limit=500')
       ]);
       setClasses(classesRes.data.classes || []);
       setStudents(studentsRes.data.users || []);
