@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Layout
 import DashboardLayout from './components/layout/DashboardLayout';
@@ -26,56 +27,58 @@ import MyActivityLogs from './pages/student/MyActivityLogs';
 
 function App() {
   return (
-    <AuthProvider>
-      <ThemeProvider>
-        <Toaster position="top-right" />
-        <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/change-password" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <ChangePassword />
-            </ProtectedRoute>
-          } />
-          
-          {/* Live Video Room */}
-          <Route path="/jitsi/:id" element={
-            <ProtectedRoute allowedRoles={['admin', 'student']}>
-              <JitsiClassRoom />
-            </ProtectedRoute>
-          } />
+    <ErrorBoundary>
+      <AuthProvider>
+        <ThemeProvider>
+          <Toaster position="top-right" />
+          <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/change-password" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <ChangePassword />
+              </ProtectedRoute>
+            } />
+            
+            {/* Live Video Room */}
+            <Route path="/jitsi/:id" element={
+              <ProtectedRoute allowedRoles={['admin', 'student']}>
+                <JitsiClassRoom />
+              </ProtectedRoute>
+            } />
 
-          {/* Teacher/Platform Admin Routes */}
-          <Route path="/teacher" element={<ProtectedRoute allowedRoles={['admin']} />}>
-            <Route element={<DashboardLayout />}>
-              <Route path="dashboard" element={<TeacherDashboard />} />
-              <Route path="students" element={<UsersManagement />} />
-              <Route path="credentials" element={<StudentCredentials />} />
-              <Route path="activity-logs" element={<ActivityLogs />} />
-              <Route path="create-student" element={<CreateStudent />} />
-              <Route path="create-class" element={<CreateClass />} />
-              <Route path="manage-classes" element={<ManageClasses />} />
-              <Route path="enroll-students" element={<EnrollStudents />} />
-              <Route index element={<Navigate to="dashboard" replace />} />
+            {/* Teacher/Platform Admin Routes */}
+            <Route path="/teacher" element={<ProtectedRoute allowedRoles={['admin']} />}>
+              <Route element={<DashboardLayout />}>
+                <Route path="dashboard" element={<TeacherDashboard />} />
+                <Route path="students" element={<UsersManagement />} />
+                <Route path="credentials" element={<StudentCredentials />} />
+                <Route path="activity-logs" element={<ActivityLogs />} />
+                <Route path="create-student" element={<CreateStudent />} />
+                <Route path="create-class" element={<CreateClass />} />
+                <Route path="manage-classes" element={<ManageClasses />} />
+                <Route path="enroll-students" element={<EnrollStudents />} />
+                <Route index element={<Navigate to="dashboard" replace />} />
+              </Route>
             </Route>
-          </Route>
 
-          {/* Student Routes */}
-          <Route path="/student" element={<ProtectedRoute allowedRoles={['student']} />}>
-            <Route element={<DashboardLayout />}>
-              <Route path="dashboard" element={<StudentDashboard />} />
-              <Route path="my-classes" element={<MyClasses />} />
-              <Route path="my-activity" element={<MyActivityLogs />} />
-              <Route index element={<Navigate to="dashboard" replace />} />
+            {/* Student Routes */}
+            <Route path="/student" element={<ProtectedRoute allowedRoles={['student']} />}>
+              <Route element={<DashboardLayout />}>
+                <Route path="dashboard" element={<StudentDashboard />} />
+                <Route path="my-classes" element={<MyClasses />} />
+                <Route path="my-activity" element={<MyActivityLogs />} />
+                <Route index element={<Navigate to="dashboard" replace />} />
+              </Route>
             </Route>
-          </Route>
 
-          {/* Default Route */}
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
-      </BrowserRouter>
-      </ThemeProvider>
-    </AuthProvider>
+            {/* Default Route */}
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </BrowserRouter>
+        </ThemeProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

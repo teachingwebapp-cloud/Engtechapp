@@ -1,9 +1,15 @@
 const mongoose = require('mongoose');
 const Class = require('../models/Class');
 const Enrollment = require('../models/Enrollment');
+const User = require('../models/User');
 const { generateRoomName, getJitsiConfig } = require('../utils/jitsiConfig');
 const logActivity = require('../middleware/activityLogger');
+const logger = require('../utils/logger');
 const { getIO } = require('../socket');
+const { 
+  checkScheduleConflict, 
+  notifyScheduleConflict 
+} = require('../utils/scheduleConflictDetector');
 
 // POST /api/classes — Create class (Teacher/Admin)
 const createClass = async (req, res) => {
@@ -12,6 +18,15 @@ const createClass = async (req, res) => {
 
     if (!title || !title.trim() || !schedule) {
       return res.status(400).json({ message: 'Title and schedule are required.' });
+    }
+
+    // Check if user can create classes
+    if (req.user.role === 'teacher' || (req.user.role === 'admin' && req.user.canTeach)) {
+      // Allowed
+    } else if (req.user.role === 'admin' && req.user.studentId === 'admin') {
+      // Super admin allowed
+    } else {
+      return res.status(403).json({ message: 'You do not have permission to create classes.' });
     }
 
     // Validate schedule is in the future
@@ -26,6 +41,9 @@ const createClass = async (req, res) => {
       return res.status(400).json({ message: 'Duration must be between 15 and 300 minutes.' });
     }
 
+    // Check for schedule conflicts
+    const conflictCheck = await checkScheduleConflict(scheduleDate, dur);
+    
     const jitsiRoomName = generateRoomName(title.trim());
 
     const newClass = await Class.create({
@@ -35,17 +53,42 @@ const createClass = async (req, res) => {
       duration: dur,
       jitsiRoomName,
       description: description || '',
-      status: 'scheduled'
+      status: 'scheduled',
+      hasConflict: conflictCheck.hasConflict
     });
+
+    // Notify about conflicts if any
+    if (conflictCheck.hasConflict) {
+      await notifyScheduleConflict(
+        req.user._id,
+        {
+          title: title.trim(),
+          schedule: scheduleDate,
+          teacherName: req.user.name
+        },
+        conflictCheck.conflictingClasses
+      );
+    }
 
     await logActivity(req.user._id, 'create_class', newClass._id, `Created class: ${title.trim()}`);
 
+    logger.info(`Class created: ${title.trim()} by ${req.user.studentId} at ${scheduleDate}`);
+
     res.status(201).json({
       message: 'Class created successfully.',
-      class: newClass
+      class: newClass,
+      ...(conflictCheck.hasConflict && {
+        warning: `${conflictCheck.conflictCount} other class(es) scheduled at this time`,
+        conflicts: conflictCheck.conflictingClasses.map(c => ({
+          id: c._id,
+          title: c.title,
+          teacher: c.teacherId?.name,
+          schedule: c.schedule
+        }))
+      })
     });
   } catch (error) {
-    console.error('Create class error:', error);
+    logger.error('Create class error:', error);
     res.status(500).json({ message: 'Server error creating class.' });
   }
 };
@@ -83,14 +126,21 @@ const getClasses = async (req, res) => {
     }
     // -------------------------------------------------
 
-    if (req.user.role === 'admin') {
+    // Role-based filtering
+    if (req.user.role === 'teacher') {
+      // Teachers see only their own classes
       filter.teacherId = req.user._id;
+    } else if (req.user.role === 'admin' && req.user.isAdminTeacher) {
+      // Admin-Teachers see their own classes
+      filter.teacherId = req.user._id;
+    } else if (req.user.role === 'admin' && req.user.studentId === 'admin') {
+      // Super-Admin sees all classes
+      // No filter needed
     } else if (req.user.role === 'student') {
       // Only return classes the student is enrolled in
       const enrollments = await Enrollment.find({ studentId: req.user._id });
-      console.log('DEBUG: enrollments for student', req.user._id, '->', enrollments);
+      logger.debug(`Enrollments for student ${req.user._id}: ${enrollments.length}`);
       const classIds = enrollments.map(e => e.classId);
-      console.log('DEBUG: matched classIds ->', classIds);
       filter._id = { $in: classIds };
     }
 
@@ -123,7 +173,7 @@ const getClasses = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get classes error:', error);
+    logger.error('Get classes error:', error);
     res.status(500).json({ message: 'Server error fetching classes.' });
   }
 };
@@ -150,9 +200,10 @@ const getClass = async (req, res) => {
     }
 
     // Ownership check (Teachers only manage their own classes, Super Admin bypasses)
-    if (req.user.role === 'admin' && req.user.studentId !== 'admin' &&
+    if ((req.user.role === 'teacher' || req.user.isAdminTeacher) && 
+        req.user.studentId !== 'admin' &&
         classItem.teacherId._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Access denied. You can only update your own classes.' });
+      return res.status(403).json({ message: 'Access denied. You can only view your own classes.' });
     }
 
     res.json({ class: classItem });
@@ -171,13 +222,13 @@ const updateClass = async (req, res) => {
       return res.status(404).json({ message: 'Class not found.' });
     }
 
-    if (req.user.role === 'admin' &&
+    if ((req.user.role === 'teacher' || req.user.isAdminTeacher) &&
         classItem.teacherId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Access denied.' });
+      return res.status(403).json({ message: 'Access denied. You can only update your own classes.' });
     }
 
     // Teacher can have only one live class at a time.
-    if (status === 'live' && req.user.role === 'admin') {
+    if (status === 'live' && (req.user.role === 'teacher' || req.user.isAdminTeacher)) {
       const otherLive = await Class.findOne({
         teacherId: req.user._id,
         status: 'live',
@@ -188,13 +239,35 @@ const updateClass = async (req, res) => {
       }
     }
 
-    if (title) classItem.title = title;
+    // Check for schedule conflicts if schedule is being updated
     if (schedule) {
       const scheduleDate = new Date(schedule);
       // Validate schedule is in the future (only for future updates)
       if (scheduleDate < new Date() && classItem.status === 'scheduled') {
         return res.status(400).json({ message: 'Class schedule must be in the future.' });
       }
+      
+      // Check conflicts with other teachers
+      const dur = duration || classItem.duration;
+      const conflicts = await checkScheduleConflict(req.user._id, scheduleDate, dur, classItem._id);
+      
+      if (conflicts.length > 0) {
+        logger.warn(`Schedule conflict detected when updating class ${classItem._id}`);
+        
+        // Notify about conflicts
+        const io = getIO();
+        if (io) {
+          io.to(`user_${req.user._id}`).emit('schedule_conflict', {
+            message: `⚠️ ${conflicts.length} other teacher(s) have classes scheduled at this time`,
+            conflicts: conflicts.map(c => ({
+              title: c.title,
+              teacher: c.teacherId.name,
+              schedule: c.schedule
+            }))
+          });
+        }
+      }
+      
       classItem.schedule = scheduleDate;
     }
     if (duration) {
@@ -257,9 +330,9 @@ const joinClass = async (req, res) => {
 
       // Generate unique session ID for tracking this student's session
       sessionId = `${classItem._id}-${req.user._id}-${Date.now()}`;
-    } else if (req.user.role === 'admin' &&
+    } else if ((req.user.role === 'teacher' || req.user.isAdminTeacher) &&
                classItem.teacherId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Access denied.' });
+      return res.status(403).json({ message: 'Access denied. You can only join your own classes.' });
     }
 
     const jitsiConfig = getJitsiConfig(req.user.role, req.user.name, classItem.jitsiRoomName);
@@ -310,9 +383,9 @@ const deleteClass = async (req, res) => {
       return res.status(404).json({ message: 'Class not found.' });
     }
 
-    // Super Admin can delete any class; regular admins only their own
+    // Super Admin can delete any class; Teachers can only delete their own
     if (
-      req.user.role === 'admin' &&
+      (req.user.role === 'teacher' || req.user.isAdminTeacher) &&
       req.user.studentId !== 'admin' &&
       classItem.teacherId.toString() !== req.user._id.toString()
     ) {
@@ -326,9 +399,11 @@ const deleteClass = async (req, res) => {
 
     await logActivity(req.user._id, 'delete_class', classItem._id, `Deleted class: ${classItem.title}`);
 
+    logger.info(`Class deleted: ${classItem.title} by ${req.user.studentId}`);
+
     res.json({ message: 'Class deleted successfully.' });
   } catch (error) {
-    console.error('Delete class error:', error);
+    logger.error('Delete class error:', error);
     res.status(500).json({ message: 'Server error deleting class.' });
   }
 };

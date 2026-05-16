@@ -4,20 +4,17 @@ if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 }
 
-// Debug: Log environment variable status (remove after fixing)
-console.log('🔍 Environment Check:');
-console.log('   NODE_ENV:', process.env.NODE_ENV);
-console.log('   MONGODB_URI:', process.env.MONGODB_URI ? '✅ Set' : '❌ Not set');
-console.log('   MONGO_URI:', process.env.MONGO_URI ? '✅ Set' : '❌ Not set');
-console.log('   DATABASE_URL:', process.env.DATABASE_URL ? '✅ Set' : '❌ Not set');
-console.log('   PORT:', process.env.PORT);
-console.log('   JWT_SECRET:', process.env.JWT_SECRET ? '✅ Set' : '❌ Not set');
-console.log('   All env keys:', Object.keys(process.env).filter(k => k.includes('MONGO') || k.includes('DATABASE')));
+// Validate environment variables on startup
+const validateEnv = require('./utils/envValidator');
+validateEnv();
+
+// Initialize logger
+const logger = require('./utils/logger');
 
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const morgan = require('morgan');
+const compression = require('compression');
 const connectDB = require('./config/db');
 const User = require('./models/User');
 
@@ -28,7 +25,14 @@ const classRoutes = require('./routes/classes');
 const enrollmentRoutes = require('./routes/enrollments');
 const activityLogRoutes = require('./routes/activityLogs');
 const permissionRoutes = require('./routes/permissions');
+const teacherRoutes = require('./routes/teachers');
+const groupChatRoutes = require('./routes/groupChat');
+
+// Import middleware
 const { apiLimiter } = require('./middleware/rateLimiter');
+const { errorHandler } = require('./middleware/errorHandler');
+const requestId = require('./middleware/requestId');
+const timeout = require('./middleware/timeout');
 
 const app = express();
 
@@ -48,31 +52,47 @@ const seedOnBoot = async () => {
         isActive: true,
         mustChangePassword: false,
       });
-      console.log('✅ Admin account seeded');
-      console.log('   Login ID: admin');
-      console.log('   Password: admin123');
+      logger.info('✅ Admin account seeded');
+      logger.info('   Login ID: admin');
+      logger.info('   Password: admin123');
     } else {
-      console.log('✅ Admin account exists');
+      logger.info('✅ Admin account exists');
     }
   } catch (error) {
-    console.error('⚠️ Seed on boot failed:', error.message);
+    logger.error('⚠️ Seed on boot failed:', error.message);
   }
 };
 
 const mongoose = require('mongoose');
 
-// Connect to MongoDB
-connectDB()
-  .then(() => {
-    if (mongoose.connection.readyState === 1) {
-      seedOnBoot();
-    } else {
-      console.log('⚠️ Skipping seedOnBoot because MongoDB is not connected.');
+// Connect to MongoDB with retry logic
+const connectWithRetry = async (retries = 5, delay = 5000) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await connectDB();
+      if (mongoose.connection.readyState === 1) {
+        await seedOnBoot();
+        return;
+      }
+    } catch (err) {
+      logger.error(`❌ MongoDB connection attempt ${i + 1}/${retries} failed: ${err.message}`);
+      if (i < retries - 1) {
+        logger.info(`⏳ Retrying in ${delay / 1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        logger.error('❌ Failed to connect to MongoDB after all retries');
+      }
     }
-  })
-  .catch((err) => console.error('❌ Failed to connect to DB:', err.message));
+  }
+};
 
-// Middleware
+connectWithRetry();
+
+// Middleware - Order matters!
+// 1. Request ID (must be first for logging)
+app.use(requestId);
+
+// 2. Security headers
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -97,6 +117,8 @@ app.use(helmet({
     policy: 'strict-origin-when-cross-origin'
   }
 }));
+
+// 3. CORS
 app.use(cors({
   origin: (origin, callback) => {
     // In development or if no origin, allow
@@ -121,14 +143,29 @@ app.use(cors({
     if (allowed.includes(origin)) {
       callback(null, true);
     } else {
+      logger.warn(`CORS blocked origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true
 }));
-app.use(express.json());
-app.use(morgan('dev'));
-app.use(apiLimiter); // Apply rate limiting to all API routes
+
+// 4. Compression
+app.use(compression());
+
+// 5. Body parsing
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// 6. HTTP logging with Winston
+const morgan = require('morgan');
+app.use(morgan('combined', { stream: logger.stream }));
+
+// 7. Request timeout
+app.use(timeout(30));
+
+// 8. Rate limiting
+app.use(apiLimiter);
 
 // Serve static files (in production, client build is in client/dist folder)
 const path = require('path');
@@ -141,10 +178,33 @@ app.use('/api/classes', classRoutes);
 app.use('/api/enrollments', enrollmentRoutes);
 app.use('/api/activity-logs', activityLogRoutes);
 app.use('/api/permissions', permissionRoutes);
+app.use('/api/teachers', teacherRoutes);
+app.use('/api/group-chat', groupChatRoutes);
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check with database connectivity
+app.get('/api/health', async (req, res) => {
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV,
+    database: 'disconnected'
+  };
+
+  try {
+    // Check database connection
+    if (mongoose.connection.readyState === 1) {
+      await mongoose.connection.db.admin().ping();
+      health.database = 'connected';
+    }
+  } catch (error) {
+    health.status = 'degraded';
+    health.database = 'error';
+    logger.error('Health check database ping failed:', error.message);
+  }
+
+  const statusCode = health.status === 'ok' ? 200 : 503;
+  res.status(statusCode).json(health);
 });
 
 // Debug directory check
@@ -166,23 +226,25 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
 
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error('Server error:', err.stack);
-  res.status(err.status || 500).json({
-    message: err.message || 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
-});
+// Global error handler (must be last)
+app.use(errorHandler);
 
 const http = require('http');
 const { setupSocket } = require('./socket');
+const gracefulShutdown = require('./utils/gracefulShutdown');
+
 const server = http.createServer(app);
-setupSocket(server);
+const io = setupSocket(server);
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  logger.info(`🚀 Server running on port ${PORT}`);
+  logger.info(`📝 Environment: ${process.env.NODE_ENV}`);
+  logger.info(`🔒 Security: Helmet, CORS, Rate Limiting enabled`);
+  logger.info(`📊 Logging: Winston with file rotation`);
 });
+
+// Setup graceful shutdown
+gracefulShutdown(server, io);
 
 module.exports = app;

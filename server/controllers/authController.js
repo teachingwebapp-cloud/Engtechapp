@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const logActivity = require('../middleware/activityLogger');
+const logger = require('../utils/logger');
 const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../utils/tokenUtils');
 
 const MAX_FAILED_LOGINS = Number(process.env.MAX_FAILED_LOGINS || 5);
@@ -103,7 +104,7 @@ const login = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Login error:', error);
+    logger.error('Login error:', error);
     res.status(500).json({ message: 'Server error during login.', error: error.message });
   }
 };
@@ -146,7 +147,7 @@ const refreshAccessToken = async (req, res) => {
       accessToken: newAccessToken
     });
   } catch (error) {
-    console.error('Refresh token error:', error);
+    logger.error('Refresh token error:', error);
     res.status(500).json({ message: 'Server error during token refresh.' });
   }
 };
@@ -171,7 +172,7 @@ const logout = async (req, res) => {
 
     res.json({ message: 'Logout successful.' });
   } catch (error) {
-    console.error('Logout error:', error);
+    logger.error('Logout error:', error);
     res.status(500).json({ message: 'Server error during logout.' });
   }
 };
@@ -215,7 +216,7 @@ const changePassword = async (req, res) => {
 
     res.json({ message: 'Password changed successfully.' });
   } catch (error) {
-    console.error('Change password error:', error);
+    logger.error('Change password error:', error);
     res.status(500).json({ message: 'Server error during password change.' });
   }
 };

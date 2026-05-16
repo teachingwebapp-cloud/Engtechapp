@@ -12,6 +12,26 @@ const classSchema = new mongoose.Schema({
     ref: 'User',
     required: [true, 'Teacher is required']
   },
+  // Track if class is currently live
+  isLive: {
+    type: Boolean,
+    default: false
+  },
+  liveStartedAt: {
+    type: Date
+  },
+  liveEndedAt: {
+    type: Date
+  },
+  // Schedule conflict tracking
+  hasConflict: {
+    type: Boolean,
+    default: false
+  },
+  conflictingClasses: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Class'
+  }],
   schedule: {
     type: Date,
     required: [true, 'Schedule is required']

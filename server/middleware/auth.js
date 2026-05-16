@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const User = require('../models/User');
+const logger = require('../utils/logger');
 
 const auth = async (req, res, next) => {
   try {
@@ -11,7 +12,7 @@ const auth = async (req, res, next) => {
 
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log('🔐 Token decoded:', { id: decoded.id, role: decoded.role, studentId: decoded.studentId });
+    logger.debug(`Token decoded: ${decoded.id} - ${decoded.role}`);
 
     // Bypass Mongoose if not connected in dev
     if (process.env.NODE_ENV === 'development' && mongoose.connection.readyState === 0) {
@@ -19,10 +20,9 @@ const auth = async (req, res, next) => {
     }
 
     const user = await User.findById(decoded.id).select('-password');
-    console.log('👤 User from DB:', { id: user?._id, role: user?.role, name: user?.name, studentId: user?.studentId });
     
     if (!user) {
-      console.error('❌ User not found in database:', decoded.id);
+      logger.warn(`User not found in database: ${decoded.id}`);
       return res.status(401).json({ message: 'User not found.' });
     }
 
@@ -31,7 +31,7 @@ const auth = async (req, res, next) => {
     }
 
     req.user = user;
-    console.log('✅ Auth successful - req.user.role:', req.user.role);
+    logger.debug(`Auth successful - User: ${req.user.studentId} (${req.user.role})`);
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError') {
@@ -40,6 +40,7 @@ const auth = async (req, res, next) => {
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ message: 'Token expired.' });
     }
+    logger.error('Authentication error:', error);
     res.status(500).json({ message: 'Authentication error.' });
   }
 };

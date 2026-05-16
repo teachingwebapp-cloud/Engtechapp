@@ -24,6 +24,11 @@ client/dist/
 server/build/
 *.log
 
+# Logs
+server/logs/*.log
+logs/
+*.log
+
 # IDE
 .vscode/
 .idea/

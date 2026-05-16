@@ -1,4 +1,6 @@
 const { Server } = require('socket.io');
+const logger = require('./utils/logger');
+const socketRateLimiter = require('./middleware/socketRateLimit');
 
 let _io = null;
 
@@ -10,13 +12,99 @@ const getIO = () => _io;
 const setupSocket = (server) => {
   _io = new Server(server, {
     cors: {
-      origin: '*', // Handled globally by Helmet/Express but wildcarded for websockets fallback
-      methods: ['GET', 'POST']
+      origin: (origin, callback) => {
+        // Use same CORS logic as Express
+        if (process.env.NODE_ENV === 'development' || !origin) {
+          return callback(null, true);
+        }
+        
+        let configuredUrl = process.env.CLIENT_URL || '';
+        if (configuredUrl.endsWith('/')) {
+          configuredUrl = configuredUrl.slice(0, -1);
+        }
+
+        const allowed = [
+          configuredUrl,
+          'http://localhost:5173',
+          'http://localhost:5174',
+          'https://web-production-cced82.up.railway.app'
+        ].filter(Boolean);
+
+        if (allowed.includes(origin)) {
+          callback(null, true);
+        } else {
+          logger.warn(`Socket.io CORS blocked origin: ${origin}`);
+          callback(new Error('Not allowed by CORS'));
+        }
+      },
+      methods: ['GET', 'POST'],
+      credentials: true
     }
   });
 
   _io.on('connection', (socket) => {
-    console.log(`Socket connected: ${socket.id}`);
+    logger.info(`Socket connected: ${socket.id}`);
+
+    // Join group chat room (all users)
+    socket.on('join_group_chat', ({ userId, userName, role, studentId }) => {
+      try {
+        // Store user info on socket
+        socket.user = { userId, userName, role, studentId };
+        
+        // Join group chat room
+        socket.join('group_chat');
+        
+        logger.info(`User ${userName} (${studentId}) joined group chat as ${role}`);
+        
+        // Notify others (optional)
+        socket.to('group_chat').emit('user_joined', {
+          userId,
+          userName: role === 'student' ? studentId : userName,
+          role,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        logger.error('Error in join_group_chat:', error);
+        socket.emit('error', { message: 'Failed to join group chat' });
+      }
+    });
+
+    // Leave group chat
+    socket.on('leave_group_chat', () => {
+      try {
+        if (socket.user) {
+          socket.leave('group_chat');
+          
+          // Notify others (optional)
+          socket.to('group_chat').emit('user_left', {
+            userId: socket.user.userId,
+            userName: socket.user.role === 'student' ? socket.user.studentId : socket.user.userName,
+            role: socket.user.role,
+            timestamp: new Date().toISOString()
+          });
+          
+          logger.info(`User ${socket.user.userName} left group chat`);
+        }
+      } catch (error) {
+        logger.error('Error in leave_group_chat:', error);
+      }
+    });
+
+    // Typing indicator
+    socket.on('typing', ({ isTyping }) => {
+      try {
+        if (socket.user) {
+          socket.to('group_chat').emit('user_typing', {
+            userId: socket.user.userId,
+            userName: socket.user.role === 'student' ? socket.user.studentId : socket.user.userName,
+            role: socket.user.role,
+            isTyping
+          });
+        }
+      } catch (error) {
+        logger.error('Error in typing:', error);
+      }
+    });
 
     // Join room logic strictly by Role
     socket.on('join_class', ({ classId, role, studentId, userName }) => {
@@ -35,9 +123,9 @@ const setupSocket = (server) => {
           socket.join(`${classId}_student_${studentId}`);
         }
 
-        console.log(`User ${userName} joined class ${classId} as ${role}`);
+        logger.info(`User ${userName} joined class ${classId} as ${role}`);
       } catch (error) {
-        console.error('Error in join_class:', error);
+        logger.error('Error in join_class:', error);
         socket.emit('error', { message: 'Failed to join class' });
       }
     });
@@ -45,6 +133,12 @@ const setupSocket = (server) => {
     // Handle student sending a message -> ONLY routed to teachers
     socket.on('student_send_message', (data) => {
       try {
+        // Rate limiting: 10 messages per minute
+        if (!socketRateLimiter.isAllowed(socket.id, 'student_send_message', 10, 60000)) {
+          socket.emit('error', { message: 'Too many messages. Please slow down.' });
+          return;
+        }
+
         if (!socket.user || socket.user.role !== 'student') {
           socket.emit('error', { message: 'Unauthorized' });
           return;
@@ -77,7 +171,7 @@ const setupSocket = (server) => {
         // Echo back to the student who sent it so they see it in their own UI
         socket.emit('receive_message', payload);
       } catch (error) {
-        console.error('Error in student_send_message:', error);
+        logger.error('Error in student_send_message:', error);
         socket.emit('error', { message: 'Failed to send message' });
       }
     });
@@ -85,6 +179,12 @@ const setupSocket = (server) => {
     // Handle teacher sending a message -> To all or specific student
     socket.on('teacher_send_message', (data) => {
       try {
+        // Rate limiting: 30 messages per minute for teachers
+        if (!socketRateLimiter.isAllowed(socket.id, 'teacher_send_message', 30, 60000)) {
+          socket.emit('error', { message: 'Too many messages. Please slow down.' });
+          return;
+        }
+
         if (!socket.user || socket.user.role !== 'admin') {
           socket.emit('error', { message: 'Unauthorized' });
           return;
@@ -124,17 +224,19 @@ const setupSocket = (server) => {
           _io.to(`${socket.user.classId}_teachers`).emit('receive_message', payload);
         }
       } catch (error) {
-        console.error('Error in teacher_send_message:', error);
+        logger.error('Error in teacher_send_message:', error);
         socket.emit('error', { message: 'Failed to send message' });
       }
     });
 
     socket.on('disconnect', () => {
-      console.log(`Socket disconnected: ${socket.id}`);
+      logger.info(`Socket disconnected: ${socket.id}`);
+      // Clear rate limiter entries for this socket
+      socketRateLimiter.clear(socket.id);
     });
     
     socket.on('error', (error) => {
-      console.error('Socket error:', error);
+      logger.error('Socket error:', error);
     });
   });
 

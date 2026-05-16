@@ -3,8 +3,87 @@ const User = require('../models/User');
 const generateStudentId = require('../utils/generateId');
 const generatePassword = require('../utils/generatePassword');
 const logActivity = require('../middleware/activityLogger');
+const logger = require('../utils/logger');
 
-// POST /api/users — Create student (Teacher only)
+// POST /api/users/teacher — Create teacher (Admin only)
+const createTeacher = async (req, res) => {
+  try {
+    const { name, phone, email, specialization, bio, experience, isAdminTeacher } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ message: 'Name is required.' });
+    }
+
+    // Only super admin can create teachers
+    if (req.user.studentId !== 'admin') {
+      return res.status(403).json({ message: 'Only Admin can create teacher accounts.' });
+    }
+
+    // Generate teacher ID (e.g., TCHR-001)
+    const teacherId = await generateTeacherId();
+    const plainPassword = generatePassword(10);
+
+    const teacher = await User.create({
+      studentId: teacherId,
+      name,
+      phone: phone || '',
+      role: 'teacher',
+      password: plainPassword,
+      plainTextPassword: plainPassword,
+      createdBy: req.user._id,
+      isActive: true,
+      mustChangePassword: true,
+      isAdminTeacher: isAdminTeacher || false,
+      teacherProfile: {
+        specialization: specialization || '',
+        bio: bio || '',
+        experience: experience || 0
+      }
+    });
+
+    await logActivity(req.user._id, 'create_teacher', null, `Created teacher: ${teacherId}`);
+
+    logger.info(`Teacher created: ${teacherId} by ${req.user.studentId}`);
+
+    res.status(201).json({
+      message: 'Teacher created successfully.',
+      teacher: {
+        id: teacher._id,
+        teacherId: teacher.studentId,
+        name: teacher.name,
+        password: plainPassword,
+        role: teacher.role,
+        isActive: teacher.isActive,
+        isAdminTeacher: teacher.isAdminTeacher,
+        mustChangePassword: teacher.mustChangePassword
+      }
+    });
+  } catch (error) {
+    logger.error('Create teacher error:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Teacher ID already exists.' });
+    }
+    res.status(500).json({ message: 'Server error creating teacher.' });
+  }
+};
+
+// Helper function to generate teacher ID
+const generateTeacherId = async () => {
+  const prefix = 'TCHR';
+  const lastTeacher = await User.findOne({ studentId: { $regex: `^${prefix}` } })
+    .sort({ studentId: -1 })
+    .select('studentId');
+
+  if (!lastTeacher) {
+    return `${prefix}-001`;
+  }
+
+  const lastNumber = parseInt(lastTeacher.studentId.split('-')[1]);
+  const nextNumber = (lastNumber + 1).toString().padStart(3, '0');
+  return `${prefix}-${nextNumber}`;
+};
+
+// POST /api/users — Create student (Teacher/Admin only)
 const createStudent = async (req, res) => {
   try {
     const { name, phone, studentId } = req.body;
@@ -35,6 +114,8 @@ const createStudent = async (req, res) => {
 
     await logActivity(req.user._id, 'create_student', null, `Created student: ${finalStudentId}`);
 
+    logger.info(`Student created: ${finalStudentId} by ${req.user.studentId}`);
+
     res.status(201).json({
       message: 'Student created successfully.',
       student: {
@@ -47,7 +128,7 @@ const createStudent = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Create student error:', error);
+    logger.error('Create student error:', error);
     if (error.code === 11000) {
       return res.status(400).json({ message: 'Student ID already exists. Please use a different ID.' });
     }
@@ -97,15 +178,23 @@ const getUsers = async (req, res) => {
     if (status === 'active') filter.isActive = true;
     if (status === 'inactive') filter.isActive = false;
 
-    // Admin-Teacher filtering:
-    // Regular admins (Teachers) only see students they created.
-    // The Super-Admin (studentId: 'admin') sees ALL students.
-    if (req.user.role === 'admin' && req.user.studentId !== 'admin') {
+    // Role-based filtering:
+    // Super-Admin (studentId: 'admin') sees everyone
+    // Teachers see only students they created
+    // Admin-Teachers see students they created + all teachers
+    if (req.user.role === 'admin' && req.user.studentId === 'admin') {
+      // Super-admin: Can filter by role if provided, otherwise sees all
+      if (!role) {
+        filter.role = { $in: ['student', 'teacher'] };
+      }
+    } else if (req.user.role === 'teacher' || (req.user.role === 'admin' && req.user.isAdminTeacher)) {
+      // Teachers and Admin-Teachers: see only students they created
       filter.role = 'student';
       filter.createdBy = req.user._id;
-    } else if (req.user.role === 'admin' && req.user.studentId === 'admin') {
-      // Super-admin: Can filter by role if provided, otherwise sees all students by default
-      if (!role) filter.role = 'student';
+    } else if (req.user.role === 'admin') {
+      // Regular admins (legacy): see students they created
+      filter.role = 'student';
+      filter.createdBy = req.user._id;
     }
 
     if (search) {
@@ -140,7 +229,7 @@ const getUsers = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get users error:', error);
+    logger.error('Get users error:', error);
     res.status(500).json({ message: 'Server error fetching users.' });
   }
 };
@@ -159,13 +248,22 @@ const getUser = async (req, res) => {
       return res.status(404).json({ message: 'User not found.' });
     }
 
-    // Teacher can only view their own students
-    if (req.user.role === 'admin') {
+    // Teachers can only view their own students
+    if (req.user.role === 'teacher') {
       if (user.role !== 'student') {
         return res.status(403).json({ message: 'Access denied.' });
       }
       if (!user.createdBy || user.createdBy.toString() !== req.user._id.toString()) {
         return res.status(403).json({ message: 'Access denied.' });
+      }
+    }
+
+    // Admin-Teachers can view students they created
+    if (req.user.role === 'admin' && req.user.isAdminTeacher) {
+      if (user.role === 'student') {
+        if (!user.createdBy || user.createdBy.toString() !== req.user._id.toString()) {
+          return res.status(403).json({ message: 'Access denied.' });
+        }
       }
     }
 
@@ -252,4 +350,4 @@ const deleteUser = async (req, res) => {
   }
 };
 
-module.exports = { createStudent, getUsers, getUser, toggleUserStatus, deleteUser };
+module.exports = { createTeacher, createStudent, getUsers, getUser, toggleUserStatus, deleteUser };

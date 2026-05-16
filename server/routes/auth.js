@@ -4,10 +4,11 @@ const { login, changePassword, getMe, logout, refreshAccessToken } = require('..
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/role');
 const { loginLimiter, passwordChangeLimiter, refreshTokenLimiter } = require('../middleware/rateLimiter');
+const validations = require('../middleware/validation');
 
-router.post('/login', loginLimiter, login);
-router.post('/refresh', refreshTokenLimiter, refreshAccessToken);
-router.post('/change-password', auth, authorize('admin', 'student'), passwordChangeLimiter, changePassword);
+router.post('/login', loginLimiter, validations.login, login);
+router.post('/refresh', refreshTokenLimiter, validations.refreshToken, refreshAccessToken);
+router.post('/change-password', auth, authorize('admin', 'teacher', 'student'), passwordChangeLimiter, validations.changePassword, changePassword);
 router.get('/me', auth, getMe);
 router.post('/logout', auth, logout);
 

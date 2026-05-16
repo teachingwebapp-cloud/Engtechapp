@@ -21,9 +21,15 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['admin', 'student'],
+    enum: ['admin', 'teacher', 'student'],
     required: [true, 'Role is required'],
     default: 'student'
+  },
+  // Admin can also teach classes
+  canTeach: {
+    type: Boolean,
+    default: false,
+    description: 'Admin can also act as teacher'
   },
   password: {
     type: String,
@@ -53,6 +59,42 @@ const userSchema = new mongoose.Schema({
   mustChangePassword: {
     type: Boolean,
     default: false
+  },
+  // For teachers: can they also act as admin
+  isAdminTeacher: {
+    type: Boolean,
+    default: false,
+    description: 'If true, this teacher also has admin privileges'
+  },
+  // Teacher profile fields
+  teacherProfile: {
+    specialization: {
+      type: String,
+      trim: true,
+      maxlength: 200
+    },
+    bio: {
+      type: String,
+      trim: true,
+      maxlength: 500
+    },
+    experience: {
+      type: Number,
+      min: 0,
+      description: 'Years of teaching experience'
+    },
+    joinedAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  // Email for teachers
+  email: {
+    type: String,
+    trim: true,
+    lowercase: true,
+    sparse: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
   },
   refreshTokens: [
     {

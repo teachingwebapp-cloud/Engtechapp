@@ -2,6 +2,7 @@ const PermissionRequest = require('../models/PermissionRequest');
 const Class = require('../models/Class');
 const Enrollment = require('../models/Enrollment');
 const logActivity = require('../middleware/activityLogger');
+const logger = require('../utils/logger');
 const { getIO } = require('../socket');
 const { 
   isPermissionActive, 
@@ -139,7 +140,7 @@ const requestPermission = async (req, res) => {
       throw error;
     }
   } catch (error) {
-    console.error('Request permission error:', error);
+    logger.error('Request permission error:', error);
     res.status(500).json({ message: 'Server error requesting permission.' });
   }
 };
@@ -214,7 +215,7 @@ const getPendingRequests = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get pending requests error:', error);
+    logger.error('Get pending requests error:', error);
     res.status(500).json({ message: 'Server error fetching requests.' });
   }
 };
@@ -302,7 +303,7 @@ const approveRequest = async (req, res) => {
       activeCount: await getActiveSpeakersCount(request.classId._id, request.requestType)
     });
   } catch (error) {
-    console.error('Approve request error:', error);
+    logger.error('Approve request error:', error);
     res.status(500).json({ message: 'Server error approving request.' });
   }
 };
@@ -362,7 +363,7 @@ const denyRequest = async (req, res) => {
       request
     });
   } catch (error) {
-    console.error('Deny request error:', error);
+    logger.error('Deny request error:', error);
     res.status(500).json({ message: 'Server error denying request.' });
   }
 };
@@ -416,7 +417,7 @@ const revokePermission = async (req, res) => {
       request
     });
   } catch (error) {
-    console.error('Revoke request error:', error);
+    logger.error('Revoke request error:', error);
     res.status(500).json({ message: 'Server error revoking request.' });
   }
 };
@@ -445,7 +446,7 @@ const getMyRequests = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get my requests error:', error);
+    logger.error('Get my requests error:', error);
     res.status(500).json({ message: 'Server error fetching requests.' });
   }
 };
@@ -496,7 +497,7 @@ const checkPermissionStatus = async (req, res) => {
 
     res.json(response);
   } catch (error) {
-    console.error('Check status error:', error);
+    logger.error('Check status error:', error);
     res.status(500).json({ message: 'Server error checking status.' });
   }
 };
@@ -540,7 +541,7 @@ const updatePermissionSettings = async (req, res) => {
       settings: classItem.permissionSettings
     });
   } catch (error) {
-    console.error('Update settings error:', error);
+    logger.error('Update settings error:', error);
     res.status(500).json({ message: 'Server error updating settings.' });
   }
 };
@@ -581,7 +582,7 @@ const setSpeakerLimit = async (req, res) => {
       maxConcurrentSpeakers: classItem.maxConcurrentSpeakers
     });
   } catch (error) {
-    console.error('Set speaker limit error:', error);
+    logger.error('Set speaker limit error:', error);
     res.status(500).json({ message: 'Server error updating limit.' });
   }
 };
@@ -638,7 +639,7 @@ const getAnalytics = async (req, res) => {
       active: await getActivePermissions(classId)
     });
   } catch (error) {
-    console.error('Analytics error:', error);
+    logger.error('Analytics error:', error);
     res.status(500).json({ message: 'Server error fetching analytics.' });
   }
 };
