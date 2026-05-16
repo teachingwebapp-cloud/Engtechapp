@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
 import { Send, Trash2, Users, AlertCircle } from 'lucide-react';
 import Card from '../components/ui/Card';
+import Modal from '../components/ui/Modal';
 
 const SOCKET_URL = import.meta.env.PROD
   ? window.location.origin
@@ -18,6 +19,7 @@ const GroupChat = () => {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [socket, setSocket] = useState(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -85,12 +87,13 @@ const GroupChat = () => {
     }
   };
 
-  const handleDeleteMessage = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this message?')) return;
+  const handleDeleteMessage = async () => {
+    if (!deleteConfirmId) return;
     
     try {
-      await api.delete(`/group-chat/messages/${id}`);
+      await api.delete(`/group-chat/messages/${deleteConfirmId}`);
       toast.success('Message deleted');
+      setDeleteConfirmId(null);
       // The socket event will handle updating the UI for everyone including us
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to delete message');
@@ -186,7 +189,7 @@ const GroupChat = () => {
                     {/* Admin delete button */}
                     {!msg.isDeleted && (user.role === 'admin' || user.role === 'teacher') && (
                       <button 
-                        onClick={() => handleDeleteMessage(msgId)}
+                        onClick={() => setDeleteConfirmId(msgId)}
                         style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', opacity: 0.5, transition: '0.2s', padding: '0.25rem' }}
                         onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
                         onMouseLeave={(e) => e.currentTarget.style.opacity = 0.5}
@@ -246,6 +249,29 @@ const GroupChat = () => {
           </button>
         </form>
       </Card>
+
+      <Modal isOpen={!!deleteConfirmId} onClose={() => setDeleteConfirmId(null)} title="Delete Message" size="sm">
+        <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+          <Trash2 size={48} style={{ color: 'var(--danger)', marginBottom: '1rem', opacity: 0.8 }} />
+          <p style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 0.5rem 0' }}>Are you sure?</p>
+          <p style={{ color: 'var(--text-muted)', margin: '0 0 1.5rem 0' }}>This message will be marked as deleted for everyone. This cannot be undone.</p>
+          
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+            <button 
+              onClick={() => setDeleteConfirmId(null)}
+              style={{ padding: '0.75rem 1.5rem', borderRadius: '0.5rem', border: '1px solid var(--border-color)', backgroundColor: 'transparent', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleDeleteMessage}
+              style={{ padding: '0.75rem 1.5rem', borderRadius: '0.5rem', border: 'none', backgroundColor: 'var(--danger)', color: 'white', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Yes, Delete
+            </button>
+          </div>
+        </div>
+      </Modal>
     </motion.div>
   );
 };
