@@ -24,6 +24,8 @@ import StudentCredentials from './pages/teacher/StudentCredentials';
 import StudentDashboard from './pages/student/StudentDashboard';
 import MyClasses from './pages/student/MyClasses';
 import MyActivityLogs from './pages/student/MyActivityLogs';
+import CreateTeacher from './pages/admin/CreateTeacher';
+import GroupChat from './pages/GroupChat';
 
 function App() {
   return (
@@ -55,9 +57,11 @@ function App() {
                 <Route path="credentials" element={<StudentCredentials />} />
                 <Route path="activity-logs" element={<ActivityLogs />} />
                 <Route path="create-student" element={<CreateStudent />} />
+                <Route path="create-teacher" element={<CreateTeacher />} />
                 <Route path="create-class" element={<CreateClass />} />
                 <Route path="manage-classes" element={<ManageClasses />} />
                 <Route path="enroll-students" element={<EnrollStudents />} />
+                <Route path="group-chat" element={<GroupChat />} />
                 <Route index element={<Navigate to="dashboard" replace />} />
               </Route>
             </Route>
@@ -68,6 +72,7 @@ function App() {
                 <Route path="dashboard" element={<StudentDashboard />} />
                 <Route path="my-classes" element={<MyClasses />} />
                 <Route path="my-activity" element={<MyActivityLogs />} />
+                <Route path="group-chat" element={<GroupChat />} />
                 <Route index element={<Navigate to="dashboard" replace />} />
               </Route>
             </Route>

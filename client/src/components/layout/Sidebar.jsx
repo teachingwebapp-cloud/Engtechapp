@@ -73,6 +73,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     if (user?.role === 'admin') {
       return [
         { to: '/teacher/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+        { to: '/teacher/create-teacher', icon: UserPlus, label: 'Add Teacher' },
         { to: '/teacher/create-student', icon: UserPlus, label: 'Add Student' },
         { to: '/teacher/create-class', icon: PlusCircle, label: 'Create Class' },
         { to: '/teacher/enroll-students', icon: Video, label: 'Enroll Students' },
@@ -80,6 +81,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         { to: '/teacher/students', icon: Users, label: 'All Students' },
         { to: '/teacher/credentials', icon: Lock, label: 'Student Credentials' },
         { to: '/teacher/activity-logs', icon: Activity, label: 'Activity Logs' },
+        { to: '/teacher/group-chat', icon: Users, label: 'Community Chat' },
         { to: '/change-password', icon: Lock, label: 'Change Password' },
       ];
     }
@@ -88,6 +90,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         { to: '/student/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
         { to: '/student/my-classes', icon: Video, label: 'My Classes' },
         { to: '/student/my-activity', icon: Activity, label: 'My Activity' },
+        { to: '/student/group-chat', icon: Users, label: 'Community Chat' },
       ];
     }
     return [];
