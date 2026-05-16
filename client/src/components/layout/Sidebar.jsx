@@ -70,20 +70,36 @@ const Sidebar = ({ isOpen, onClose }) => {
   const { user, logout } = useAuth();
 
   const getLinks = () => {
-    if (user?.role === 'admin') {
-      return [
-        { to: '/teacher/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-        { to: '/teacher/create-teacher', icon: UserPlus, label: 'Add Teacher' },
+    if (user?.role === 'admin' || user?.role === 'teacher') {
+      const links = [
+        { to: '/teacher/dashboard', icon: LayoutDashboard, label: 'Dashboard' }
+      ];
+      
+      // Only admins can create other teachers
+      if (user?.role === 'admin') {
+        links.push({ to: '/teacher/create-teacher', icon: UserPlus, label: 'Add Teacher' });
+      }
+      
+      links.push(
         { to: '/teacher/create-student', icon: UserPlus, label: 'Add Student' },
         { to: '/teacher/create-class', icon: PlusCircle, label: 'Create Class' },
         { to: '/teacher/enroll-students', icon: Video, label: 'Enroll Students' },
         { to: '/teacher/manage-classes', icon: ListOrdered, label: 'Manage Classes' },
-        { to: '/teacher/students', icon: Users, label: 'All Students' },
-        { to: '/teacher/credentials', icon: Lock, label: 'Student Credentials' },
+        { to: '/teacher/students', icon: Users, label: 'All Students' }
+      );
+      
+      // Only admins get global credentials vault
+      if (user?.role === 'admin') {
+        links.push({ to: '/teacher/credentials', icon: Lock, label: 'Student Credentials' });
+      }
+      
+      links.push(
         { to: '/teacher/activity-logs', icon: Activity, label: 'Activity Logs' },
         { to: '/teacher/group-chat', icon: Users, label: 'Community Chat' },
-        { to: '/change-password', icon: Lock, label: 'Change Password' },
-      ];
+        { to: '/change-password', icon: Lock, label: 'Change Password' }
+      );
+      
+      return links;
     }
     if (user?.role === 'student') {
       return [

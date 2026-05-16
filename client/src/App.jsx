@@ -50,7 +50,7 @@ function App() {
             } />
 
             {/* Teacher/Platform Admin Routes */}
-            <Route path="/teacher" element={<ProtectedRoute allowedRoles={['admin']} />}>
+            <Route path="/teacher" element={<ProtectedRoute allowedRoles={['admin', 'teacher']} />}>
               <Route element={<DashboardLayout />}>
                 <Route path="dashboard" element={<TeacherDashboard />} />
                 <Route path="students" element={<UsersManagement />} />

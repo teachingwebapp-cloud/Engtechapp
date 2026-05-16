@@ -19,7 +19,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     // Redirect based on role if unauthorized
-    if (user.role === 'admin') return <Navigate to="/teacher/dashboard" replace />;
+    if (user.role === 'admin' || user.role === 'teacher') return <Navigate to="/teacher/dashboard" replace />;
     return <Navigate to="/student/dashboard" replace />;
   }
 
